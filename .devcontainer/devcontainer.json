@@ -1,0 +1,5 @@
+{
+	"name": "fedora",
+	"build": { "dockerfile": "Containerfile" },
+	"privileged": true
+}
