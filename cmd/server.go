@@ -1,19 +1,36 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"github.com/maxisgrom/k8s-controller-example/pkg/informer"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/valyala/fasthttp"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	"os"
 )
 
 var serverPort int
+var serverKubeconfig string
+var serverInCluster bool
 
 var serverCmd = &cobra.Command{
 	Use:   "server",
-	Short: "Start a FastHTTP server",
+	Short: "Start a FastHTTP server and informer",
 	Run: func(cmd *cobra.Command, args []string) {
+		level := parseLogLevel(logLevel)
+		configureLogger(level)
+		clientset, err := getServerKubeClient(serverKubeconfig, serverInCluster)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to create Kubernetes client")
+			os.Exit(1)
+		}
+		ctx := context.Background()
+		go informer.StartDeploymentInformer(ctx, clientset)
+
 		handler := func(ctx *fasthttp.RequestCtx) {
 			_, err := fmt.Fprintf(ctx, "Hello from FastHTTP!")
 			if err != nil {
@@ -29,7 +46,23 @@ var serverCmd = &cobra.Command{
 	},
 }
 
+func getServerKubeClient(kubeconfigPath string, inCluster bool) (*kubernetes.Clientset, error) {
+	var config *rest.Config
+	var err error
+	if inCluster {
+		config, err = rest.InClusterConfig()
+	} else {
+		config, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return kubernetes.NewForConfig(config)
+}
+
 func init() {
 	rootCmd.AddCommand(serverCmd)
 	serverCmd.Flags().IntVar(&serverPort, "port", 8080, "Port to run the server on")
+	serverCmd.Flags().StringVar(&serverKubeconfig, "kubeconfig", "", "Path to the kubeconfig file")
+	serverCmd.Flags().BoolVar(&serverInCluster, "in-cluster", false, "Use in-cluster Kubernetes config")
 }
